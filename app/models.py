@@ -32,9 +32,11 @@ class NivelRisco(str, Enum):
 class AnaliseRisco:
     aluno_id: int
     nivel: NivelRisco
-    probabilidade_evasao: float
+    fator_risco: float
     media_notas: float
     frequencia: float
+    atividades_entregues: int | None
+    atividades_esperadas: int | None
     mensagem: str
     criado_em: datetime
 
@@ -42,9 +44,11 @@ class AnaliseRisco:
         return {
             "aluno_id": self.aluno_id,
             "nivel": self.nivel.value,
-            "probabilidade_evasao": round(self.probabilidade_evasao, 4),
+            "fator_risco": round(self.fator_risco, 4),
             "media_notas": round(self.media_notas, 2),
             "frequencia": round(self.frequencia, 2),
+            "atividades_entregues": self.atividades_entregues,
+            "atividades_esperadas": self.atividades_esperadas,
             "mensagem": self.mensagem,
             "criado_em": self.criado_em.isoformat(timespec="seconds"),
         }
@@ -56,4 +60,3 @@ def today_iso() -> str:
 
 def now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
-

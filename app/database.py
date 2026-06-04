@@ -17,7 +17,7 @@ def password_hash(password: str) -> str:
 
 def connect(db_path: Path = DB_PATH) -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
@@ -82,6 +82,8 @@ def init_db(conn: sqlite3.Connection) -> None:
             materia_id INTEGER,
             notas_json TEXT NOT NULL,
             frequencia REAL NOT NULL,
+            atividades_entregues INTEGER,
+            atividades_esperadas INTEGER,
             data_referencia TEXT NOT NULL,
             criado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (aluno_id) REFERENCES alunos(id) ON DELETE CASCADE,
@@ -95,6 +97,8 @@ def init_db(conn: sqlite3.Connection) -> None:
             probabilidade_evasao REAL NOT NULL,
             media_notas REAL NOT NULL,
             frequencia REAL NOT NULL,
+            atividades_entregues INTEGER,
+            atividades_esperadas INTEGER,
             mensagem TEXT NOT NULL,
             criado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (aluno_id) REFERENCES alunos(id) ON DELETE CASCADE
@@ -122,7 +126,17 @@ def init_db(conn: sqlite3.Connection) -> None:
         );
         """
     )
+    ensure_column(conn, "desempenhos", "atividades_entregues", "INTEGER")
+    ensure_column(conn, "desempenhos", "atividades_esperadas", "INTEGER")
+    ensure_column(conn, "analises", "atividades_entregues", "INTEGER")
+    ensure_column(conn, "analises", "atividades_esperadas", "INTEGER")
     conn.commit()
+
+
+def ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 def seed_db(conn: sqlite3.Connection) -> None:

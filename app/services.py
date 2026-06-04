@@ -54,21 +54,46 @@ class AuthService:
 class MotorIA:
     """Motor preditivo por regras, conforme contingencia prevista no plano."""
 
-    def analisar(self, aluno_id: int, notas: list[float], frequencia: float) -> AnaliseRisco:
+    def analisar(
+        self,
+        aluno_id: int,
+        notas: list[float],
+        frequencia: float,
+        atividades_entregues: int | None = None,
+        atividades_esperadas: int | None = None,
+    ) -> AnaliseRisco:
         if not notas:
             raise AppError("Informe ao menos uma nota para analise.")
         if frequencia < 0 or frequencia > 100:
             raise AppError("Frequencia deve estar entre 0 e 100.")
+        if atividades_entregues is not None and atividades_entregues < 0:
+            raise AppError("Atividades entregues nao pode ser negativo.")
+        if atividades_esperadas is not None and atividades_esperadas <= 0:
+            raise AppError("Atividades esperadas deve ser maior que zero.")
+        if (
+            atividades_entregues is not None
+            and atividades_esperadas is not None
+            and atividades_entregues > atividades_esperadas
+        ):
+            raise AppError("Atividades entregues nao pode ser maior que atividades esperadas.")
 
         media = sum(notas) / len(notas)
         deficit_nota = max(0.0, (7.0 - media) / 7.0)
         deficit_freq = max(0.0, (75.0 - frequencia) / 75.0)
-        probabilidade = min(0.95, 0.15 + (deficit_nota * 0.5) + (deficit_freq * 0.35))
+        deficit_atividades = 0.0
+        if atividades_entregues is not None and atividades_esperadas is not None:
+            percentual_entrega = atividades_entregues / atividades_esperadas
+            deficit_atividades = max(0.0, 1.0 - percentual_entrega)
 
-        if media < 5.0 or frequencia < 65.0 or probabilidade >= 0.7:
+        fator_risco = min(
+            0.95,
+            0.10 + (deficit_nota * 0.45) + (deficit_freq * 0.30) + (deficit_atividades * 0.15),
+        )
+
+        if media < 5.0 or frequencia < 65.0 or deficit_atividades >= 0.5 or fator_risco >= 0.7:
             nivel = NivelRisco.ALTO
             mensagem = "Aluno em risco critico: desempenho e/ou frequencia exigem intervencao imediata."
-        elif media < 7.0 or frequencia < 80.0 or probabilidade >= 0.4:
+        elif media < 7.0 or frequencia < 80.0 or deficit_atividades >= 0.25 or fator_risco >= 0.4:
             nivel = NivelRisco.MEDIO
             mensagem = "Aluno em atencao: acompanhar proximas avaliacoes e frequencia."
         else:
@@ -78,9 +103,11 @@ class MotorIA:
         return AnaliseRisco(
             aluno_id=aluno_id,
             nivel=nivel,
-            probabilidade_evasao=probabilidade,
+            fator_risco=fator_risco,
             media_notas=media,
             frequencia=frequencia,
+            atividades_entregues=atividades_entregues,
+            atividades_esperadas=atividades_esperadas,
             mensagem=mensagem,
             criado_em=datetime.now(),
         )
@@ -148,6 +175,7 @@ class AcademicService:
     def listar_alunos(self) -> list[dict[str, Any]]:
         alunos = fetch_all(self.conn, "SELECT * FROM alunos ORDER BY nome")
         for aluno in alunos:
+            normalize_fator_risco(aluno)
             aluno["materias"] = self._materias_do_aluno(aluno["id"])
             aluno["ultima_analise"] = self._ultima_analise(aluno["id"])
         return alunos
@@ -156,6 +184,7 @@ class AcademicService:
         aluno = fetch_one(self.conn, "SELECT * FROM alunos WHERE id = ?", (aluno_id,))
         if not aluno:
             raise AppError("Aluno nao encontrado.", 404)
+        normalize_fator_risco(aluno)
         aluno["materias"] = self._materias_do_aluno(aluno_id)
         aluno["desempenhos"] = fetch_all(
             self.conn,
@@ -210,15 +239,26 @@ class AcademicService:
             self._ensure_materia(int(materia_id))
         notas = [float(nota) for nota in require(payload, "notas")]
         frequencia = float(require(payload, "frequencia"))
+        atividades_entregues = optional_int(payload.get("atividades_entregues"))
+        atividades_esperadas = optional_int(payload.get("atividades_esperadas"))
         data_referencia = payload.get("data_referencia", today_iso())
         self.conn.execute(
             """
-            INSERT INTO desempenhos (aluno_id, materia_id, notas_json, frequencia, data_referencia)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO desempenhos
+            (aluno_id, materia_id, notas_json, frequencia, atividades_entregues, atividades_esperadas, data_referencia)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (aluno_id, materia_id, json.dumps(notas), frequencia, data_referencia),
+            (
+                aluno_id,
+                materia_id,
+                json.dumps(notas),
+                frequencia,
+                atividades_entregues,
+                atividades_esperadas,
+                data_referencia,
+            ),
         )
-        analise = self.motor_ia.analisar(aluno_id, notas, frequencia)
+        analise = self.motor_ia.analisar(aluno_id, notas, frequencia, atividades_entregues, atividades_esperadas)
         self._persistir_analise(analise)
         self.conn.commit()
         return {"aluno": self.obter_aluno(aluno_id), "analise": analise.to_dict()}
@@ -243,6 +283,8 @@ class AcademicService:
                 desempenho["aluno_id"],
                 [float(nota) for nota in json.loads(desempenho["notas_json"])],
                 float(desempenho["frequencia"]),
+                optional_int(desempenho.get("atividades_entregues")),
+                optional_int(desempenho.get("atividades_esperadas")),
             )
             self._persistir_analise(analise)
             analises.append(analise.to_dict())
@@ -276,13 +318,15 @@ class AcademicService:
             LIMIT 10
             """,
         )
-        media_evasao = sum(float(aluno["probabilidade_evasao"]) for aluno in alunos) / total if total else 0
+        fator_risco_medio = sum(float(aluno["probabilidade_evasao"]) for aluno in alunos) / total if total else 0
+        for analise in analises:
+            normalize_fator_risco(analise)
         return {
             "indicadores": {
                 "total_alunos": total,
                 "alunos_em_risco": por_risco.get("Medio", 0) + por_risco.get("Alto", 0),
                 "alertas_ativos": len(alertas),
-                "probabilidade_evasao_media": round(media_evasao, 4),
+                "fator_risco_medio": round(fator_risco_medio, 4),
             },
             "distribuicao_risco": por_risco,
             "alertas": alertas,
@@ -334,15 +378,18 @@ class AcademicService:
         self.conn.execute(
             """
             INSERT INTO analises
-            (aluno_id, nivel_risco, probabilidade_evasao, media_notas, frequencia, mensagem)
-            VALUES (?, ?, ?, ?, ?, ?)
+            (aluno_id, nivel_risco, probabilidade_evasao, media_notas, frequencia,
+             atividades_entregues, atividades_esperadas, mensagem)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 analise.aluno_id,
                 analise.nivel.value,
-                analise.probabilidade_evasao,
+                analise.fator_risco,
                 analise.media_notas,
                 analise.frequencia,
+                analise.atividades_entregues,
+                analise.atividades_esperadas,
                 analise.mensagem,
             ),
         )
@@ -352,7 +399,7 @@ class AcademicService:
             SET status = ?, status_risco = ?, probabilidade_evasao = ?
             WHERE id = ?
             """,
-            (status, analise.nivel.value, analise.probabilidade_evasao, analise.aluno_id),
+            (status, analise.nivel.value, analise.fator_risco, analise.aluno_id),
         )
         self.conn.execute("UPDATE alertas SET ativo = 0, resolvido_em = CURRENT_TIMESTAMP WHERE aluno_id = ?", (analise.aluno_id,))
         if analise.nivel in {NivelRisco.MEDIO, NivelRisco.ALTO}:
@@ -378,11 +425,14 @@ class AcademicService:
         )
 
     def _ultima_analise(self, aluno_id: int) -> dict[str, Any] | None:
-        return fetch_one(
+        analise = fetch_one(
             self.conn,
             "SELECT * FROM analises WHERE aluno_id = ? ORDER BY id DESC LIMIT 1",
             (aluno_id,),
         )
+        if analise:
+            normalize_fator_risco(analise)
+        return analise
 
     def _ensure_aluno(self, aluno_id: int) -> None:
         if not fetch_one(self.conn, "SELECT id FROM alunos WHERE id = ?", (aluno_id,)):
@@ -398,3 +448,14 @@ def require(payload: dict[str, Any], field: str) -> Any:
     if value is None or value == "":
         raise AppError(f"Campo obrigatorio ausente: {field}.")
     return value
+
+
+def optional_int(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    return int(value)
+
+
+def normalize_fator_risco(row: dict[str, Any]) -> None:
+    if "probabilidade_evasao" in row:
+        row["fator_risco"] = row.pop("probabilidade_evasao")
