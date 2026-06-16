@@ -41,8 +41,20 @@ class Application:
         self.add("POST", r"^/analises/recalcular$", self.recalcular_riscos)
         self.add("GET", r"^/dashboard$", self.dashboard)
         self.add("GET", r"^/alertas$", self.alertas)
+        self.add("GET", r"^/comunicados$", self.comunicados)
+        self.add("POST", r"^/comunicados$", self.criar_comunicado)
         self.add("GET", r"^/relatorios$", self.relatorios)
         self.add("POST", r"^/relatorios$", self.criar_relatorio)
+        self.add("GET", r"^/metricas$", self.metricas) //mudança
+        self.add("POST", r"^/metricas$", self.criar_metrica) //mudança
+        self.add("GET", r"^/dashboard$", self.dashboard) //mudança
+        self.add("GET", r"^/estatisticas$", self.estatisticas)
+        self.add( //Mudança
+                "GET",
+                r"^/dashboard/aluno/(?P<aluno_id>\d+)$",
+                self.dashboard_individual
+        
+)
 
     def add(self, method: str, pattern: str, handler: RouteHandler, public: bool = False) -> None:
         self.routes.append((method, re.compile(pattern), handler, public))
@@ -103,6 +115,12 @@ class Application:
     def criar_materia(self, params: dict[str, str], body: dict[str, Any], headers: dict[str, str]) -> tuple[int, Any]:
         require_gestor(body)
         return 201, self.academic.criar_materia(body)
+    def metricas(self, params, body, headers):
+    return 200, self.academic.listar_metricas()
+
+    def criar_metrica(self, params, body, headers):
+    require_gestor(body)
+    return 201, self.academic.criar_metrica(body)
 
     def alunos(self, params: dict[str, str], body: dict[str, Any], headers: dict[str, str]) -> tuple[int, Any]:
         return 200, self.academic.listar_alunos()
@@ -113,6 +131,19 @@ class Application:
 
     def aluno(self, params: dict[str, str], body: dict[str, Any], headers: dict[str, str]) -> tuple[int, Any]:
         return 200, self.academic.obter_aluno(int(params["aluno_id"]))
+
+    def atualizar_aluno(self, params, body, headers):
+    require_gestor(body)
+    return 200, self.academic.atualizar_aluno(
+        int(params["aluno_id"]),
+        body
+    )
+
+def remover_aluno(self, params, body, headers):
+    require_gestor(body)
+    return 200, self.academic.remover_aluno(
+        int(params["aluno_id"])
+    )
 
     def vincular_materia(self, params: dict[str, str], body: dict[str, Any], headers: dict[str, str]) -> tuple[int, Any]:
         require_gestor(body)
@@ -126,6 +157,11 @@ class Application:
 
     def dashboard(self, params: dict[str, str], body: dict[str, Any], headers: dict[str, str]) -> tuple[int, Any]:
         return 200, self.academic.dashboard()
+
+    def dashboard_individual(self, params, body, headers):
+    return 200, self.academic.dashboard_individual(
+        int(params["aluno_id"])
+    )
 
     def alertas(self, params: dict[str, str], body: dict[str, Any], headers: dict[str, str]) -> tuple[int, Any]:
         return 200, self.academic.listar_alertas()
