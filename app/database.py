@@ -124,14 +124,32 @@ def init_db(conn: sqlite3.Connection) -> None:
             criado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (criado_por) REFERENCES usuarios(id) ON DELETE SET NULL
         );
+
+        CREATE TABLE IF NOT EXISTS metricas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nome TEXT NOT NULL,
+            peso REAL NOT NULL,
+            descricao TEXT,
+            criado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS comunicados (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            titulo TEXT NOT NULL,
+            mensagem TEXT NOT NULL,
+            criado_por INTEGER,
+            criado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (criado_por) REFERENCES usuarios(id) ON DELETE SET NULL
+        );
         """
     )
+
     ensure_column(conn, "desempenhos", "atividades_entregues", "INTEGER")
     ensure_column(conn, "desempenhos", "atividades_esperadas", "INTEGER")
     ensure_column(conn, "analises", "atividades_entregues", "INTEGER")
     ensure_column(conn, "analises", "atividades_esperadas", "INTEGER")
-    conn.commit()
 
+    conn.commit()
 
 def ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
     columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
