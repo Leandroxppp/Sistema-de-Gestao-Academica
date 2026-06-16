@@ -24,6 +24,19 @@ class Application:
         self.lock = RLock()
         self.routes: list[tuple[str, re.Pattern[str], RouteHandler, bool]] = []
         self._register_routes()
+        
+    def atualizar_aluno(self, params, body, headers):
+        require_gestor(body) //adicionei
+        return 200, self.academic.atualizar_aluno(
+        int(params["aluno_id"]),
+        body
+    )
+
+def remover_aluno(self, params, body, headers):
+    require_gestor(body)
+    return 200, self.academic.remover_aluno(
+        int(params["aluno_id"])
+    )
 
     def _register_routes(self) -> None:
         self.add("GET", r"^/$", self.home, public=True)
@@ -43,6 +56,8 @@ class Application:
         self.add("GET", r"^/alertas$", self.alertas)
         self.add("GET", r"^/relatorios$", self.relatorios)
         self.add("POST", r"^/relatorios$", self.criar_relatorio)
+        self.add("PATCH", r"^/alunos/(?P<aluno_id>\d+)$", self.atualizar_aluno) //Adicionei isso
+        self.add("DELETE", r"^/alunos/(?P<aluno_id>\d+)$", self.remover_aluno)  //Adicionei isso
 
     def add(self, method: str, pattern: str, handler: RouteHandler, public: bool = False) -> None:
         self.routes.append((method, re.compile(pattern), handler, public))
